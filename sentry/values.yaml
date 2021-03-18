@@ -252,21 +252,21 @@ hooks:
 
 system:
   ## be sure to include the scheme on the url, for example: "https://sentry.example.com"
-  url: ""
-  adminEmail: ""
+  url: "https://sentry.aws.dwos.com"
+  adminEmail: "infra@dental-wings.com"
   ## This should only be used if you’re installing Sentry behind your company’s firewall.
   public: false
   ## This will generate one for you (it's must be given upon updates)
   #secretKey: "xx"
 
 mail:
-  backend: dummy # smtp
-  useTls: false
+  backend: smtp
+  useTls: true
   username: ""
   password: ""
-  port: 25
-  host: ""
-  from: ""
+  port: 587
+  host: "email-smtp.us-west-2.amazonaws.com"
+  from: "sentry@aws.dwos.com"
 
 symbolicator:
   enabled: false
@@ -329,7 +329,7 @@ slack: {}
 #   Reference -> https://develop.sentry.dev/integrations/slack/
 
 nginx:
-  enabled: true
+  enabled: false
   containerPort: 8080
   existingServerBlockConfigmap: '{{ template "sentry.fullname" . }}'
   resources: {}
@@ -339,16 +339,20 @@ nginx:
     port: 80
 
 ingress:
-  enabled: false
+  enabled: true
   # If you use AWS ALB and want to redirect HTTP traffic to HTTPS, enbale the following:
-  # alb:
-  #   redirectHTTP: true
-  # annotations:
-  #   If you are using nginx ingress controller, please use at least those 2 annotations
+  alb:
+    redirectHTTP: true
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:ca-central-1:712964028200:certificate/16d48101-28ec-4819-a771-4f4f826c06bb
+    alb.ingress.kubernetes.io/healthcheck-path: /_health/
+  # If you are using nginx ingress controller, please use at least those 2 annotations
   #   kubernetes.io/ingress.class: nginx
   #   nginx.ingress.kubernetes.io/use-regex: "true"
   #
-  # hostname:
+  hostname: sentry.aws.dwos.com
   #
   # tls:
   # - secretName:
@@ -356,7 +360,7 @@ ingress:
 
 filestore:
   # Set to one of filesystem, gcs or s3 as supported by Sentry.
-  backend: filesystem
+  backend: s3
 
   filesystem:
     path: /var/lib/sentry/files
@@ -395,14 +399,14 @@ filestore:
     # bucketName:
 
   ## Currently unconfigured and changing this has no impact on the template configuration.
-  s3: {}
+  s3:
   #  accessKey:
   #  secretKey:
-  #  bucketName:
+    bucketName: 'sentry-filevault'
   #  endpointUrl:
-  #  signature_version:
-  #  region_name:
-  #  default_acl:
+    signature_version: 's3v4'
+    region_name: 'ca-central-1'
+    default_acl: 'private'
 
 config:
   # No YAML Extension Config Given
