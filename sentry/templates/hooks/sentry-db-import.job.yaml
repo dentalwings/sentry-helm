@@ -1,0 +1,84 @@
+{{- if and .Values.hooks.enabled .Values.postgresql.importdbPath .Values.postgresql.importdbNode -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ template "sentry.fullname" . }}-db-import
+  labels:
+    app: sentry
+    chart: "{{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}"
+    release: "{{ .Release.Name }}"
+    heritage: "{{ .Release.Service }}"
+  annotations:
+    # This is what defines this resource as a hook. Without this line, the
+    # job is considered part of the release.
+    "helm.sh/hook": "post-install,post-upgrade"
+    "helm.sh/hook-delete-policy": "{{ if .Values.hooks.removeOnSuccess }}hook-succeeded,{{ end }}before-hook-creation"
+    "helm.sh/hook-weight": "-5"
+spec:
+  template:
+    metadata:
+      name: {{ template "sentry.fullname" . }}-db-import
+      annotations:
+        checksum/configmap.yaml: {{ include (print $.Template.BasePath "/configmap-sentry.yaml") . | sha256sum }}
+        {{- if .Values.sentry.worker.annotations }}
+{{ toYaml .Values.sentry.worker.annotations | indent 8 }}
+        {{- end }}
+      labels:
+        app: sentry
+        release: "{{ .Release.Name }}"
+        {{- if .Values.sentry.worker.podLabels }}
+{{ toYaml .Values.sentry.worker.podLabels | indent 8 }}
+        {{- end }}
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: db-import-job
+        image: {{ include "common.images.image" (dict "imageRoot" .Values.postgresql.image "global" .Values.global) }}
+        imagePullPolicy: {{ default "IfNotPresent" .Values.images.sentry.pullPolicy }}
+        command: ["sh","-c"]
+        args:
+            - echo "Remove public schema from $PGDATABASE" &&
+              psql -c "drop schema public cascade; create schema public;" &&
+              echo "Import dump from {{ .Values.postgresql.importdbPath }}" &&
+              psql -f /tmp/dump.sql
+        env:
+        - name: PGHOST
+          value: {{ include "sentry.postgresql.host" . }}
+        - name: PGPORT
+          value: {{ include "sentry.postgresql.port" . | quote}}
+        - name: PGUSER
+          value: {{ include "sentry.postgresql.username" . }}
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ default (include "sentry.postgresql.fullname" .) .Values.postgresql.existingSecret }}
+              key: {{ default "postgresql-password" .Values.postgresql.existingSecretKey }}
+        - name: PGDATABASE
+          value:  {{ include "sentry.postgresql.database" . }}
+
+        volumeMounts:
+        - mountPath: /etc/sentry
+          name: config
+          readOnly: true
+        - mountPath: /tmp/dump.sql
+          name: dump
+        resources:
+{{ toYaml .Values.hooks.dbInit.resources | indent 10 }}
+      volumes:
+      - name: config
+        configMap:
+          name: {{ template "sentry.fullname" . }}-sentry
+      - name: dump
+        hostPath:
+          path: {{ .Values.postgresql.importdbPath }}
+          type: File
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values:
+                  - {{ .Values.postgresql.importdbNode }}
+{{- end -}}
